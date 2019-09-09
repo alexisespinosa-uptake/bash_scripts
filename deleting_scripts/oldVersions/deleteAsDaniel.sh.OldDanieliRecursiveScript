@@ -1,0 +1,39 @@
+#!/bin/bash
+
+OUTPUT=YES
+#DRYRUN=YES
+
+topdir=$1
+
+next_dir() {
+ local thisdir=$1
+
+ # Check if empty
+ if [ -z "$thisdir" ]; then
+  return 0
+ fi
+
+ if [ ! -z "${OUTPUT}" ]; then
+  echo "Traversing directory $thisdir"
+ fi
+ #Process children
+ for dir in $(find -H $thisdir -mindepth 1 -maxdepth 1 -type d -print); do
+  next_dir "$dir"
+ done
+
+ if [ ! -z "${OUTPUT}" ]; then
+  echo "Processing directory $thisdir"
+ fi
+
+ #Process this directory
+ if [ ! -z "${DRYRUN}" ]; then
+  find -H $thisdir -mindepth 1 -maxdepth 1 -type f -o -type l -exec echo " Deleting file {}" \;
+  find -H $thisdir -mindepth 1 -maxdepth 1 -type d -empty -exec echo " Deleting dir {}" \;
+ else
+  find -H $thisdir -mindepth 1 -maxdepth 1 -print0 -type f -o -type l | xargs -0 munlink
+  find -H $thisdir -mindepth 1 -maxdepth 1 -type d -empty -delete
+ fi
+}
+
+next_dir "$topdir"
+

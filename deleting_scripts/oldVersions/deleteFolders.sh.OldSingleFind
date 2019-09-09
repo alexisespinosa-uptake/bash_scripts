@@ -1,0 +1,386 @@
+#!/bin/bash
+
+#-------------------------------------------
+#-------------------------------------------
+#Echoing the slurm settings that this script has received:
+echo " "
+echo "Echoing slurm settings from the deletion script:"
+echo "SLURM_JOB_NAME=${SLURM_JOB_NAME}"
+echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
+echo "SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR}"
+echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
+echo "SLURM_NTASKS=${SLURM_NTASKS}"
+echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
+echo "SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK}"
+echo "SLURM_JOB_CPUS_PER_NODE=${SLURM_JOB_CPUS_PER_NODE}"
+
+#-------------------------------------------
+#-------------------------------------------
+#These variables should come from the call of the script, if not defined then here are defined defaults
+echo " "
+nCores=$SLURM_JOB_CPUS_PER_NODE
+nCores="${nCores:-10}"
+echo "The number of cores to be used is: ${nCores}"
+baseDirectory=$SLURM_SUBMIT_DIR
+baseDirectory="${baseDirectory:-$PWD}"
+echo "The base directory to be used is: ${baseDirectory}"
+baseFileName=$SLURM_JOB_NAME
+baseFileName="${baseFileName:-DMF}"
+echo "The base base name for the auxilary files to be created is: ${baseFileName}"
+#useDependantCycle=AEG. Should be defined in the main calling program, if not this is default:
+useDependantCycle="${useDependantCycle:-false}"
+echo "Set-up for the dependant cycle is useDependantCycle=${useDependantCycle}"
+#dependantScript=AEG. Should be defined in the main calling program, if not this is default:
+dependantScript="${dependantScript:-None.slm}"
+echo "Set-up name for the script to be sent next iteration of the cycle is dependantScript=${dependantScript}"
+#maxIterations=AEG. Should be defined in the main calling program, if not this is default:
+maxIterations="${maxIterations:-10}"
+echo "Set-up for the maximum number of dependant iterations to be performed in the cycle is maxIterations=${maxIterations}"
+#currentIteration=AEG. Should be defined in the main calling program, if not this is default:
+currentIteration="${currentIteration:-$maxIterations}"
+echo "Set-up for the current iteration being performed in this cycle is currentIteration=${currentIteration}"
+nextIteration=$(( $currentIteration + 1 ))
+echo "And nextIteration=${nextIteration}"
+
+#-------------------------------------------
+#-------------------------------------------
+#Defining some specific parameters
+# The maximum number of output files (used to be used for checking the number of iterations, but now it is here just for safety reasons)
+#maxOutputFiles=$maxIterations
+maxOutputFiles=50
+# Number of files to be processed in munlink by core
+# AEG:ToBeTested (This argument is not in use right now, needs to be tested)
+nFilesPerCore=100
+echo "The number of lines to be chunked for xargs is -L${nFilesPerCore}"
+# Minumum Number of files expected to appear quickly in order to proceed directly to munlink
+rmLimit=100
+# Waiting time in seconds for find to search for at least "rmLimit" number of files
+limitQuickFindTest=30
+echo "For the quick check for files, will look for ${rmLimit} files in ${limitQuickFindTest} seconds."
+# Waiting time in minutes for trying to delete files or directories
+limitDeleteTime=15
+echo "For deleting files the cycles will be ${limitDeleteTime} minutes long each try"
+# Waiting time in minutes for trying to delete nasty files or directories
+limitDeleteRMRF=2
+echo "For deleting nasty files the cycles will be ${limitDeleteRMRF} minutes long each try"
+# Maximum number of deleting cycles (around 200 cycles of 15 minutes in 48 hours)
+NMaxCycles=200
+echo "For deleting files the maximum number of cycles will be ${NMaxCycles}"
+# This parameter needs to be tunned. But from my tests, a value of 2 is very good
+# In the future will be related to NCores, but for now its fixed:
+nPXargs=2
+echo "Parallel processing in xargs will be done with -P${nPXargs}"
+echo "Checking Xargs parallel effectivity"
+echo "with:  seq 10 | xargs -n 1 -P10  sleep"
+time seq 10 | xargs -n 1 -P10 sleep
+
+#------------------------------------------
+#-------------------------------------------
+#Reading the argument with the directory or the directories' list
+echo " "
+if [ "$#" -ne 1 ]; then
+    echo "This script accepts only one argument, which is either the name of a directory"
+    echo "or the name of a file with a list of directories in each line"
+    thisScript=`basename "$0"`
+    echo "Usage: ${thisScript} directory"
+    echo "or:    ${thisScript} list.txt"
+    exit 1
+fi
+argument=$1
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Changing to the base directory
+echo " "
+cd $baseDirectory
+echo "Working from the baseDirectory: ${baseDirectory}"
+echo "All auxiliary files will be created there"
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#If the stopFileName exists then exit
+echo " "
+stopFileName=${baseFileName}.stop
+if [ -f $stopFileName ]; then
+    echo "The file ${stopFileName} exist"
+    echo "Therefore, stoping the resending of the script"
+    exit 2
+fi
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Avoiding falling into an infinite loop of recurrent errors which generate huge amount of files
+echo " "
+nOutFiles=$(find -P . -maxdepth 1 -name "${baseFileName}*" | wc -l)
+if [ $nOutFiles -gt $maxOutputFiles ]; then
+    echo "The following logFiles exist"
+    ls ${baseFileName}*
+    echo "Exiting because the maximum iterations (measured with number of logFiles) have been reached: $nOutFiles > $maxOutputFiles"
+    exit 3
+fi
+if [ $currentIteration -gt $maxIterations ]; then
+    echo "Exiting because the maximum iterations have been reached: currentIteration=$currentIteration > $maxIterations"
+    exit 4
+fi
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+# Identifying if is there another job with the same name already running
+echo " "
+echo "Identifying if there is another job with the same name already running"
+squeue -u $USER --name="$SLURM_JOB_NAME"
+nRunning=$(squeue -u $USER --name="$SLURM_JOB_NAME" --state=RUNNING | wc -l)
+nRunning=$(($nRunning - 2))
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+echo " "
+#Checking if there are other pending jobs with the same name
+nPending=$(squeue -u $USER --name="$SLURM_JOB_NAME" --state=PENDING | wc -l)
+nPending=$(($nPending - 1))
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Logic for cancelling existing running and pending jobs and resubmitting
+echo " "
+if [ $nRunning -ge 2 ] || [ $nPending -ge 2 ]; then
+    echo " "
+    echo "The name of this job is: ${SLURM_JOB_NAME}"
+    echo "TWO OR MORE jobs with the same name are already running. SameNames=${nRunning}" 
+    echo "or TWO OR MORE jobs with the same name are already pending. Pending=${nPending}"
+    echo "This job will stop and the user should check the status of the jobs with squeue"
+    echo "IMPORTANT1:"
+    echo "It is not recommended to scancel everything, it is better to identify which jobs should be left running"
+    echo "This is because find command takes a long time and its better to make use of what is already running"
+    echo "But the recommended state is one job running and one job dependant of it"
+    echo "IMPORTANT2:"
+    echo "Also the problem may be that you need to rename this job in order to delete a different set of directories"
+    echo "Exiting this job request .."
+    exit 5
+elif [ $nRunning -eq 1 ] && [ $nPending -le 1 ]; then
+    echo " "
+    echo "The name of this job is: ${SLURM_JOB_NAME}"
+    echo "ONE job with the same name is already running. SameNames=${nRunning}"
+    echo "And one or none jobs with the same name are already pending. Pending=${nPending}"
+    echo "Everything looks fine in the queue for that running job and dependants."
+    echo "So That job will be left running"
+    echo "And This job request will be cancelled"
+    echo "IMPORTANT: the problem may be that you need to rename this job in order to delete a different set of directories"
+    echo "Exiting this job request .."
+    exit 6
+elif [ $nRunning -eq 0 ] && [ $nPending -eq 1 ]; then
+    echo " "
+    echo "The name of this job is: ${SLURM_JOB_NAME}"
+    echo "There was a single orphan pending job with the same name. SameNames=${nRunning}, Pending=${nPending}"
+    echo "I will leave it in the queue And This job request will be cancelled"
+    echo "IMPORTANT: the problem may be that you need to rename this job in order to delete a different set of directories"
+    echo "Exiting this job request .."
+    exit 7
+else
+    echo " "
+    echo "The name of this job is: ${SLURM_JOB_NAME}"
+    echo "No SameName-Jobs already running exist. Good! SameNames=${nRunning}, Pending=${nPending}"
+    echo "Now, This job will be proceed to submit a dependant job and to proceed to deletion"
+fi
+
+#-------------------------------------------
+#-------------------------------------------
+#Defining the array of directories to delete
+echo " "
+i=0
+if [ -d "$argument" ]; then
+    echo "The argument:${argument}, is a directory"
+    delDirArr[$i]=$argument
+    ((i++))
+elif [ -d "./$argument" ]; then
+    echo "The argument:./${argument}, is a directory"
+    delDirArr[$i]=./$argument
+    ((i++))
+elif [ -f "$argument" ]; then
+    echo "The argument:${argument}, is a file with a list"
+    while read readLine
+    do
+        delDirArr[$i]=$readLine
+        ((i++))
+    done < $argument
+elif [ -f "./$argument" ]; then
+    echo "The argument:./${argument}, is a file with a list"
+    while read readLine
+    do
+        delDirArr[$i]=$readLine
+        ((i++))
+    done < ./$argument
+else
+    echo "The argument:${argument}, does not exist"
+    exit 8
+fi
+NDirs=$(($i - 1))
+
+#-------------------------------------------
+#-------------------------------------------
+#Resubmitting the indicated script (name comes from the submitting script)
+echo " "
+if [ "$useDependantCycle" = "true" ]; then
+    echo "Sending also the dependant job: ${dependantScript}"
+    sonJobID=$(sbatch --export=currentIteration=${nextIteration} --parsable --dependency=afterany:${SLURM_JOB_ID} ${dependantScript})
+    echo "The dependant script has sonJobID=${sonJobID}"
+else
+    echo "useDependantCycle=false, therefore NOT SENDING the dependant script" 
+fi
+
+
+#-------------------------------------------
+#-------------------------------------------
+#Removing leftovers
+echo " "
+echo "Removing rmLimit files from previous submissions"
+ls *.${baseFileName}.rmLimit
+rm *.${baseFileName}.rmLimit
+
+
+#-------------------------------------------
+#-------------------------------------------
+#Cycle over the directories to be deleted
+echo " "
+nothingDone=true
+echo "Setting nothingDone=${nothingDone}"
+for i in `seq 0 ${NDirs}`; do
+    #Defining the folder to delete:
+    echo "Processing directory of index i=${i}"
+    echo "The directory to delete is: ${delDirArr[$i]}"
+    delDir=${delDirArr[$i]}
+    #Checking if the delDir variable is properly set
+    if [ -z "$delDir" ] && [ "${delDir+xxx}" = "xxx" ]; then
+        echo "The variable delDir is set but empty"
+        echo "This could be dangerous, so please check your input list"
+        echo "Creating the stopFile:${stopFileName}"
+        echo "And the script will not be resubmitted again"
+        touch ${stopFileName}
+        echo "Canceling the dependant job:${sonJobID}"
+        scancel ${sonJobID}
+        echo "Exiting the script"
+        exit 9
+    fi
+    if [ -d $delDir ]; then 
+        for (( cycles=0; cycles<$NMaxCycles; cycles++ )); do
+            echo "Cycle=${cycles} for deleting directory: ${delDirArr[$i]}"
+            echo "Counting how many files are in the system:"
+            lfs quota -u $USER $delDir
+            nothingDone=false
+            echo "Setting nothingDone=${nothingDone}"
+            nFiles=0
+            nEmpties=0
+            baseDelDir=`basename "${delDir}"`
+            #-------------------------------------------
+            #Checking for the existence of files
+            echo "1.0 Finding for at least ${rmLimit} files within ${limitQuickFindTest} seconds"
+            timeout ${limitQuickFindTest}s find -P ${delDir} -type f -o -type l | head -${rmLimit} > ${baseDelDir}.${baseFileName}.rmLimit 
+            nFiles=$(sed -n '$=' ${baseDelDir}.${baseFileName}.rmLimit)
+            nFiles="${nFiles:-0}"
+            echo "1.1 In ${limitQuickFindTest} seconds, find saw ${nFiles} files in the tree ${delDir}."
+            #Deleting files:
+            if [ $nFiles -gt 0 ]; then
+                echo "Deleting existing files first"
+                echo "1.2 So it will starting with munlink"
+                echo "Trying for ${limitDeleteTime} minutes"
+                echo "Date starting:"
+                date
+                #AEG:NotUsingNow:find -P ${delDir} -type f -print0 -o -type l -print0 | xargs -0 -P ${nPXargs} munlink
+                timeout ${limitDeleteTime}m find -P ${delDir} -type f -print0 -o -type l -print0 | xargs -0 -L${nFilesPerCore} -P ${nPXargs} munlink
+                #AEG:2ndIdea:time find -P ${delDir} -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 -L1 -P${nPXargs} --replace=@ find -P @ -type f -print0 -o -type l -print0 | xargs -0 -L${nFilesPerCore} -P ${nPXargs} munlink
+                echo "Date finishing:"
+                date
+            fi
+
+            #-------------------------------------------
+            #Checking for the existence of empty dirs
+            echo "2.0 Finding for at least ${rmLimit} dirs within ${limitQuickFindTest} seconds"
+            timeout ${limitQuickFindTest}s find -P ${delDir} -mindepth 1 -depth -type d -empty | head -${rmLimit} > emptyDirs.${baseDelDir}.${baseFileName}.rmLimit 
+            nEmpties=$(sed -n '$=' emptyDirs.${baseDelDir}.${baseFileName}.rmLimit)
+            nEmpties="${nEmpties:-0}"
+            echo "2.1 In ${limitQuickFindTest} seconds, find saw ${nEmpties} empty Dirs in the tree ${delDir}."
+            #Deleting dirs:
+            if [ $nEmpties -gt 0 ]; then
+                echo "Deleting empty directories first"
+                echo "2.2 So it will start deleting empty dirs with find -delete"
+                echo "Trying for ${limitDeleteTime} minutes"
+                echo "Date starting:"
+                date
+                timeout ${limitDeleteTime}m find -P ${delDir} -mindepth 1 -depth -type d -empty -delete
+                #AEG.2ndIdea:timeout ${limitDeleteTime}m find -P ${delDir} -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 -L1 -P${nPXargs} --replace=@ find -P @ -depth -type d -empty -delete
+                echo "Date finishing:"
+                date
+            fi
+
+            #-------------------------------------------
+            #If it seems to be close to the end of deletion
+            if [ $nFiles -eq 0 ] && [ $nEmpties -eq 0 ]; then
+                echo "3.0 As empty dirs seen= ${nEmpties}, Files seen=${nFiles}, proceding into final stage"
+                echo "3.1 now deleting files in ${delDir} with munlink"
+                echo "Trying for ${limitDeleteTime} minutes"
+                echo "Date starting:"
+                date
+                #AEG:NotUsingNow:timeout ${limitDeleteTime}m find -P ${delDir} -type f -print0 -o -type l -print0 | xargs -0 -P ${nPXargs} munlink
+                timeout ${limitDeleteTime}m find -P ${delDir} -type f -print0 -o -type l -print0 | xargs -0 -L${nFilesPerCore} -P ${nPXargs} munlink
+                #AEG:2ndIdea:timeout ${limitDeleteTime}m find -P ${delDir} -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 -L1 -P${nPXargs} --replace=@ find -P @ -type f -print0 -o -type l -print0 | xargs -0 -L${nFilesPerCore} -P ${nPXargs} munlink
+                echo "Date finishing:"
+                date
+
+                echo "3.2 now delting ${delDir} empty dirs left"
+                echo "Trying for ${limitDeleteTime} minutes"
+                echo "Date starting:"
+                date
+                timeout ${limitDeleteTime}m find -P ${delDir} -depth -type d -empty -delete
+                #AEG:2ndIdea:timeout ${limitDeleteTime}m find -P ${delDir} -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 -L1 -P${nPXargs} --replace=@ find -P @ -depth -type d -empty -delete
+                echo "Date finishing:"
+                date
+            fi
+
+            #-------------------------------------------
+            #Removing nasty files with rm -rf
+            ###echo "4.0 As some nasty files/directories may not be recognized by the find/munlink procedure,"
+            ###echo "    Here we remove the everything with rm -rf during ${limitDeleteRMRF} minutes"
+            ###echo "Date starting:"
+            ###date
+            ###timeout ${limitDeleteRMRF}m rm -rf ${delDir} 
+            ###echo "Date finishing:"
+            ###date
+
+            #-------------------------------------------
+            #Checking for the finished deletion and end of the cycle
+            if ! [ -d $delDir ]; then
+               echo "5.0 Deletion of the directory is finished: ${delDir}"
+               cycles=$NMaxCycles
+           fi
+        done
+    elif [ -f $delDir ]; then
+        echo "${delDir} is a file. Deleting it"
+        rm $delDir
+    else
+        echo "${delDir} does not exists"
+    fi
+done
+
+#-------------------------------------------
+#-------------------------------------------
+#Removing leftovers and creaing the stopScript file if neccessary
+echo " "
+echo "Removing rmLimit files from this submission"
+ls *.${baseFileName}.rmLimit
+rm *.${baseFileName}.rmLimit
+echo "At the end we have nothingDone=${nothingDone}"
+if [ "$nothingDone" = "true" ]; then
+    echo "Nothing was done really during the script, therefore creating the stopFile:${stopFileName}"
+    echo "And the script will not be resubmitted again"
+    touch ${stopFileName}
+    echo "Canceling the dependant job:${sonJobID}"
+    scancel ${sonJobID}
+    echo "Remember to delete this stopFile (${stopFileName}) before resubmitting a script with the same --job-name=${baseFileName}"
+fi
+
+#-------------------------------------------
+#-------------------------------------------
+#Final lines
+echo " "
+echo "The script has reached the end, exiting with success"
+exit 0

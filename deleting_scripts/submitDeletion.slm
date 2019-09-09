@@ -1,0 +1,102 @@
+#!/bin/bash -l
+##IMPORTANT: Modify the --job-name if you are submiting this kind of script two or more times for
+##           the deletion of different directories. That is, each job submitted to the queue should have
+##           a differnet --job-name.
+#
+#UserShouldModify next 1 line(s): (please read the IMPORTANT comment above)
+#SBATCH --job-name=DeletingMyDirs
+#
+#SBATCH --output=%x-%j.out
+#SBATCH --clusters=zeus
+#SBATCH --partition=copyq
+#SBATCH --no-requeue
+#
+#UserShouldModify next 1 line(s):
+#SBATCH --account=pawseyXXXX
+#
+#UserMayModify next 1 line(s):
+#SBATCH --time=6:00:00
+#
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --export=none
+
+##----------------------------
+echo "Echoing slurm settings from the initial script:"
+echo "SLURM_JOB_NAME=${SLURM_JOB_NAME}"
+echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
+echo "SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR}"
+echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
+echo "SLURM_NTASKS=${SLURM_NTASKS}"
+echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
+echo "SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK}"
+echo "SLURM_JOB_CPUS_PER_NODE=${SLURM_JOB_CPUS_PER_NODE}"
+
+##----------------------------
+#Defining the deletion script:
+#Users should keep using their $MYGROUP/../deleting_scripts/deleteFolders.sh script unless instructed otherwise
+scriptDir=$MYGROUP/../deleting_scripts
+deletingScriptName=${scriptDir}/deleteFolders.sh
+
+# The script defined above in $deletingScriptName will receive a list of directories to delete, or the name of a directory itself.
+# The list or the directoryName should be passed as an argument to the script in the command line.
+#
+# For example:
+# $MYGROUP/../deleting_scripts/deleteFolders.sh user.delete.list
+#
+# or using the variable defined above:
+# $deletingScriptName user.delete.list
+#
+# (also see how it is really used with srun at the bottom of this script)
+
+##----------------------------
+# IMPORTANT:
+# The deleting script also receives and uses several variables that should be created (exported)
+# here in this slurm submission script.
+# Some of these variables are SLURM variables, but some other are defined in the following section.
+# A description of these variables is as follows:
+# useDependantCycle can be "true" or "false" (lowercase).
+#                   It defines if the deletingScript will resend this job several times with dependencies
+#                   as a cycle.
+#                   Most of the time this is not needed, but if you really have millions and millions of files
+#                   you may need to tackle this with several jobs sent in a cycle. The number of iterations
+#                   of the cycle and other variables that control it are explained below.
+# maxIterations=N is the number of times this script is going to be resent if useDependantCycle=true
+# dependantScript=TheNameOfThisSubmissionScript or the name of any other script that we want 
+#                 to use as the follwing step in the cycle. Used if useDependantCycle=true
+# currentIteration is the current iteration of the submission cycle when useDependantCycle=true.
+#                  This variable automatically takes the value of 1 for the first submission and inherits
+#                  the value of the previous step in the cycle if the cycle has progressed. Officialy, the
+#                  user should not modify this variable setting.
+#
+
+##----------------------------
+#Defining some variables for the resubmition to be used in the deleteFolders.sh script:
+#UserMayModify next 1 line(s): (use true or false). (Please read IMPORTANT comment above.)
+export useDependantCycle=false
+export maxIterations=10
+thisScript=`squeue -h -j $SLURM_JOBID -o %o`
+export dependantScript=${thisScript}
+#Current iteration defaults to 1, but during the resubmission cycle its value increases and is received here via
+#an --export option. Usually users do not change its value here.
+: ${currentIteration:="1"}
+export currentIteration=${currentIteration}
+
+##----------------------------
+#Echoing the definition of variables
+echo "Echoing parameter settings from the initial script:"
+echo "useDependantCycle=${useDependantCycle}"
+echo "maxIterations=${maxIterations}"
+echo "dependantScript=${dependantScript}"
+echo "currentIteration=${currentIteration}"
+
+##----------------------------
+#Example for deleting a single directory:
+#UserShouldModify next 1 line(s) if deleting a single directory tree (otherwise keep commented):
+srun -u --export=all -N ${SLURM_JOB_NUM_NODES} -n ${SLURM_NTASKS_PER_NODE} -c ${SLURM_CPUS_PER_TASK} ${deletingScriptName} /scratch/pawseyXXX/OpenFOAM/case1
+
+##----------------------------
+#Example for deleting several directories. Directories to be deleted must be in a list within a file(user.delete.list):
+#UserShouldModify next 1 line(s) if deleting multiple directory trees (otherwise keep commented):
+#srun -u --export=all -N ${SLURM_JOB_NUM_NODES} -n ${SLURM_NTASKS_PER_NODE} -c ${SLURM_CPUS_PER_TASK} ${deletingScriptName} user.delete.list

@@ -1,0 +1,116 @@
+#!/bin/bash --login
+#SBATCH --export=none
+#SBATCH --clusters=magnus
+#SBATCH --partition=workq
+#SBATCH --ntasks=24
+#SBATCH --time=00:15:00
+#SBATCH --account=pawsey0001
+#SBATCH --job-name=TEST00
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#Main slurm script for a burst-type of workflow with openfoam
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+currentScript0=`squeue -h -j $SLURM_JOBID -o %o`
+echo "currentScript0=$currentScript0"
+errorCode0=0
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#SETTING UP THE ENVIRONMENT AND VARIABLES
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Setting up the modules
+module list
+module swap PrgEnv-cray PrgEnv-gnu
+module load openfoam+/v1712
+module list
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Global variables for the scripts:
+WorkFlowScriptsDir=$MYGROUP/bash_scripts/OpenFOAM/WorkFlowScripts/bursts
+workingDir=${SLURM_SUBMIT_DIR:-$PWD}
+jobTagBurst=${SLURM_JOB_NAME:-"0"}
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Defining the auxiliary functions
+source $WorkFlowScriptsDir/defineAuxiliaryFunctions.sh
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#OPENFOAM SETTINGS
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Control Variables and parameters
+startFrom=startTime
+allStartTime=0
+forcedStartTime=-1000
+allEndTime=0.50
+deltaT=0.001
+writeInterval=0.005
+burstRange=0.05
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Reconstruction parameters
+performReconstruct="true"
+memPerReconstruct=5 #Memory to be used for reconstruction in Gb
+totalMemPerNodeReconstruct=125
+maxReconstructsPerNode=$((totalMemPerNodeReconstruct/memPerReconstruct))
+nodesPerReconstructJob=1
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Taring Decomposed parameters
+performTarDecomposed="true"
+memPerTarDecomposed=4 #Memory to be used for taringDecomposed in Gb
+totalMemPerNodeTarDecomposed=125
+maxTarDecomposedPerNode=$((totalMemPerNodeTarDecomposed/memPerTarDecomposed))
+nodesPerTarDecomposedJob=1
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+#Deleting Decomposed parameters
+performDeleteDecomposed="true"
+maxDeleteDecomposedPerNode=2 #16 cores in the copyq nodes
+nodesPerDeleteDecomposedJob=1
+nAliveTimes=3
+sleepTime="10m"
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#CYCLE OF EXECUTION
+cd $workingDir
+echo "PWD=$PWD"
+runStatus="running"
+##runStatus="done"
+Ncycle=0
+source $WorkFlowScriptsDir/burstsDefine.sh
+##OJOTEST:
+while [ $runStatus != "done" ]; do
+##for i in {0..0};do
+   echo "NCycle=$Ncycle"
+   source $WorkFlowScriptsDir/burstsControl.sh
+   if [[ $runStatus != "done" ]]; then
+      srun --export=all -n $SLURM_NTASKS --unbuffered interFoam -parallel -fileHandler uncollated 
+      source $WorkFlowScriptsDir/burstsDefine.sh
+   fi
+   (( Ncycle++ ))
+done
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#FINAL STEPS
+echo "Main cycle has finished"
+echo "Finishing $currentScript0"
