@@ -19,7 +19,7 @@ errorCode1=100
 #-------------------------------------------------------------------------
 #Directory of the definition of auxiliary functions
 #functionsD=$HOME/bash_functions
-functionsD=$MYGROUP/bash_functions
+functionsD=$MYGROUP/bash_scripts/bash_functions
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------

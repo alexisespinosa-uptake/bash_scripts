@@ -18,7 +18,7 @@ errorCode3=300
 #-------------------------------------------------------------------------
 #Reconstruction parameters
 echo "-----------------------------------------------------------"
-echo "Recontruction parameters were set in the main script:"
+echo "Reconstruction parameters were set in the main script:"
 echo "performReconstruct = ${performReconstruct}"
 echo "memPerReconstruct = ${memPerReconstruct}, units are Gb"
 echo "totalmemPerNodeReconstruct = ${totalMemPerNodeReconstruct}, units are Gb"
@@ -184,8 +184,15 @@ if float_cond "$maxTimeSeen > $lastBurstedTime"; then
    mkdir $newBurst
    cd $newBurst
    touch timesBurst.list
-   echo "Starting with the second last existing time, as the last time may be faulty"
-   i=1
+   echo "Saving the latest existing FPSO output control file into the burst directory"
+   cp $workingDir/FPSO_motion.txt FPSO_motion_${newBurst}.txt
+   if (( $nBurstsDirectories == 0 )); then 
+      echo "Starting from the last existing time, as there are no burst information available"
+      i=0
+   else
+      echo "Starting with the second last existing time, as the last time may be faulty"
+      i=1
+   fi
    timeI=${timeDirArr[$i]}
    echo "Up to time=$timeI"
    while float_cond "$timeI > $lastBurstedTime"; do
@@ -195,7 +202,7 @@ if float_cond "$maxTimeSeen > $lastBurstedTime"; then
    done
    sort -n timesBurst.list -o timesBurst.list
    cd $burstsDir
-   if (( $i == 1 )); then
+   if (( $i == 1 )) && (( $nBurstsDirectories > 0 )); then
        echo "The second last existing time ($timeI) is already included in the latest existing burst"
        echo "So, indeed, no new burst will be created."
        echo "Removing the last burst attempt with a no times on it: $newBurst"

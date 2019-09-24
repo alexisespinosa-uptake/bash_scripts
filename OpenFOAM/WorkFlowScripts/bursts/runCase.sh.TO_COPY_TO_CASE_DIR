@@ -27,8 +27,7 @@ errorCode0=0
 #-------------------------------------------------------------------------
 #Setting up the modules
 module list
-module swap PrgEnv-cray PrgEnv-gnu
-module load openfoam+/v1712
+source defineModulesForMagnus.sh
 module list
 
 #-------------------------------------------------------------------------
@@ -50,8 +49,12 @@ source $WorkFlowScriptsDir/defineAuxiliaryFunctions.sh
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
+# Solver
+ofSolver=interFoam
+
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
 #Control Variables and parameters
-startFrom=startTime
 allStartTime=0
 forcedStartTime=-1000
 allEndTime=0.50
@@ -65,7 +68,8 @@ burstRange=0.05
 performReconstruct="true"
 memPerReconstruct=5 #Memory to be used for reconstruction in Gb
 totalMemPerNodeReconstruct=125
-maxReconstructsPerNode=$((totalMemPerNodeReconstruct/memPerReconstruct))
+#numReconstructsPerJob=$((totalMemPerNodeReconstruct/memPerReconstruct))
+numReconstructsPerJob=10
 nodesPerReconstructJob=1
 
 #-------------------------------------------------------------------------
@@ -74,7 +78,8 @@ nodesPerReconstructJob=1
 performTarDecomposed="true"
 memPerTarDecomposed=4 #Memory to be used for taringDecomposed in Gb
 totalMemPerNodeTarDecomposed=125
-maxTarDecomposedPerNode=$((totalMemPerNodeTarDecomposed/memPerTarDecomposed))
+#maxTarDecomposedPerNode=$((totalMemPerNodeTarDecomposed/memPerTarDecomposed))
+maxTarDecomposedPerNode=8 #16 cores in the copyq nodes
 nodesPerTarDecomposedJob=1
 
 #-------------------------------------------------------------------------
@@ -92,17 +97,21 @@ sleepTime="10m"
 #CYCLE OF EXECUTION
 cd $workingDir
 echo "PWD=$PWD"
-runStatus="running"
+##OJOTEST: avoiding entering in the cycle at all with runStatus=done:
 ##runStatus="done"
+runStatus="running"
 Ncycle=0
 source $WorkFlowScriptsDir/burstsDefine.sh
-##OJOTEST:
+##OJOTEST: reduced iterations instead of while cycle:
+##for i in {0..3};do
 while [ $runStatus != "done" ]; do
-##for i in {0..0};do
    echo "NCycle=$Ncycle"
+   ! [ -d ./logs ] && mkdir logs
+   currentLogFile=./logs/log.${ofSolver}.${SLURM_JOB_ID}.Cycle_${Ncycle}
    source $WorkFlowScriptsDir/burstsControl.sh
    if [[ $runStatus != "done" ]]; then
-      srun --export=all -n $SLURM_NTASKS --unbuffered interFoam -parallel -fileHandler uncollated 
+      srun --export=all -n $SLURM_NTASKS --unbuffered ${ofSolver} -parallel -fileHandler uncollated 2>&1 | tee $currentLogFile
+      source $WorkFlowScriptsDir/checkRunErrors.sh
       source $WorkFlowScriptsDir/burstsDefine.sh
    fi
    (( Ncycle++ ))

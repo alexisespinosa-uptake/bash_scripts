@@ -1,11 +1,12 @@
 #!/bin/bash -l
 #SBATCH --export=none
-#SBATCH --account=pawsey0224
+#SBATCH --account=pawsey0001
 #SBATCH --job-name=burstsDeleteDecomposed
 #SBATCH --partition=copyq
 #SBATCH --clusters=zeus
-#--------OJOTEST: Change to 24 hours after finishing testing
-#SBATCH --time=24:00:00
+#--------OJOTEST: Change to 4-24 hours after finishing testing
+####SBATCH --time=00:30:00
+#SBATCH --time=04:00:00
 #SBATCH --ntasks=1
 ####SBATCH --mem-per-cpu=4G
 #SBATCH --output=%x-%j.out
@@ -81,9 +82,9 @@ if [ $performDeleteDecomposed != "true" ]; then
    echo "Exiting early because performDeleteDecomposed=$performDeleteDecomposed is not \"true\""
    echo "And This job request will be cancelled"
    echo "Exiting this job request .."
-   echo "Exiting from $currentScript4"
-   ((errorCode4 += 0))
-   exit $errorCode4
+   echo "Exiting from $currentScript6"
+   ((errorCode6 += 0))
+   exit $errorCode6
 fi
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -103,6 +104,7 @@ source $WorkFlowScriptsDir/defineAuxiliaryFunctions.sh
 nNamesakes=$(squeue --name="$SLURM_JOB_NAME" --state=RUNNING | wc -l)
 nNamesakes=$(float_eval "$nNamesakes")
 nNamesakes=$(float_eval "$nNamesakes - 2")
+echo "From $currentScript6, nNamesakes=$nNamesakes"
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -110,6 +112,7 @@ nNamesakes=$(float_eval "$nNamesakes - 2")
 nPendings=$(squeue --name="$SLURM_JOB_NAME" --state=PENDING | wc -l)
 nPendings=$(float_eval "$nPendings")
 nPendings=$(float_eval "$nPendings - 1")
+echo "From $currentScript6, nPendings=$nPendings"
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -250,10 +253,11 @@ function readTimesToDelete(){
       jEnd=$((nTimeDirectories - 1))
       maxTimeInBurst=${timeDirArr[$jEnd]}
       maxTimeToDelete=$maxTimeInBurst
+      jEndAlive=$jEnd
       while float_cond "$maxTimeToDelete >= $allAliveTimeSeen"; do
-         ((jEnd -= 1)) 
-         maxTimeToDelete=${timeDirArr[$jEnd]}
-         if [ $jEnd -eq -1 ]; then
+         ((jEndAlive -= 1)) 
+         maxTimeToDelete=${timeDirArr[$jEndAlive]}
+         if [ $jEndAlive -eq -1 ]; then
             maxTimeToDelete=-1
             break
          fi
@@ -273,8 +277,9 @@ readTimesToDelete
 #-----------------------------------------
 #-----------------------------------------
 #Cycle of checking for deleting decomposed times
-deletedTimes=1
-dependantSent=false
+deletedTimes=0 
+shouldSleep="false" #Used as a flag to skip the first sleep after entering the cycle
+dependantSent="false"
 while ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyDeletedDecomposed ]; do
    echo "Starting deletion cycle"
    #-----------------------------------------
@@ -286,11 +291,13 @@ while ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyDeletedDecompose
       next_jobid=$(sbatch --export="burstDealingHere=${burstDealingHere},performDeleteDecomposed=$performDeleteDecomposed,allStartTime=$allStartTime,nAliveTimes=$nAliveTimes,sleepTime=$sleepTime,previousMaxTimeSeen=$allMaxTimeSeen" --ntasks=$SLURM_NTASKS --job-name=$SLURM_JOB_NAME --output="$burstsDir/${burstDealingHere}/${SLURM_JOB_NAME}-%j.out" --dependency=afterany:${SLURM_JOB_ID} $dependantScript | awk '{print $4}')
       scontrol show job $next_jobid
       squeue -u $USER
-      dependantSent=true
+      dependantSent="true"
    else
       echo "Dependant job was already sent before jobID=$next_jobid"
    fi
-   if [ $deletedTimes -eq 0 ]; then 
+   echo "deletedTimes=$deletedTimes"
+   echo "shouldSleep=$shouldSleep"
+   if [ $deletedTimes -eq 0 ] && [ "$shouldSleep" == "true" ]; then 
       echo "Will sleep the deleting cycle for sleep=$sleepTime"
       echo "waiting for the run to create more times or the reconstruct and tarDecomposed procedures to finish before deletion"
       sleep $sleepTime
@@ -298,18 +305,25 @@ while ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyDeletedDecompose
    echo "Checking the lists again"
    generateDirList
    readTimesToDelete
-   deletedTimes=0
+   deletedTimes=0 #Reseting the values for this iteration of the cycle
+   shouldSleep="false"
    #deleting the desired directories
    echo "Deleting all times without the .deletedDecomposed file"
    for ((j=$jIni; j<=$jEnd; j+=1))
    do
        jTime=${timeDirArr[$j]}
        if [ -f "./${jTime}/.deletedDecomposed" ]; then
-          echo "NOT Deleting ${jTime} as it was done already"
+          echo "Can't Delete ${jTime} as it was done already"
        elif ! [ -f "./${jTime}/.reconstructed" ]; then
           echo "NOT Deleting ${jTime} because it has not been reconstructed yet."
+          shouldSleep="true"
        elif ! [ -f "./taredDecomposed/checks/${jTime}.taredDecomposed" ]; then
           echo "NOT Deleting ${jTime} because it has not been tared Decomposed yet."
+          shouldSleep="true"
+       elif (( $j > $jEndAlive )); then
+           echo "Not Deleting ${jTime} because ${jTime} > maxTimeToDelete($maxTimeToDelete)"
+           echo "Times larger than maxTimeToDelete are kept alive in this pass,"
+           echo "but will be deleted in another job if the solution generates more time directories."
        else
           ((deletedTimes+=1))
           echo "YES Deleting ${jTime}"
@@ -335,25 +349,49 @@ while ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyDeletedDecompose
       fi
    done
    if [ $fullyDeleted == "true" ]; then
-      echo "Decomposed times listed in $burstDealingHere have been deleted from $minTimeToDelete up to $maxTimeToDelete"
-      if float_cond "$maxTimeToDelete < $maxTimeInBurst"; then
-         if float_cond "$previousMaxTimeSeen < $allMaxTimeSeen"; then
-            echo "As maxTimeToDelete($maxTimeToDelete) < maxTimeInBurst($maxTimeInBurst), this script will wait until those times are subject to delete"
-         else
-            echo "Even if maxTimeToDelete($maxTimeToDelete) < maxTimeInBurst($maxTimeInBurst), deletion will stop here as new times have not been generated"
-            echo "previousMaxTimeSeen=$previousMaxTimeSeen"
-            echo "allMaxTimeSeen=$allMaxTimeSeen"
-            echo " No .fullDeletedDecomposed file will be generated"
-            if [ "$dependantSent" == "true" ]; then
-               echo "Cancelling dependant job, jobId=$next_jobid"
-               scancel $next_jobid 
-            fi
-            break
-         fi
-      else
-         touch "$burstsDir/${burstDealingHere}/.fullyDeletedDecomposed"
-         echo "Burst in $burstDealingHere has been fully deletedDecomposed"
+      echo "Decomposed times listed in $burstDealingHere have been deleted from:"
+      echo " minTimeToDelete($minTimeToDelete) up to maxTimeInBurst($maxTimeInBurst)"
+      touch "$burstsDir/${burstDealingHere}/.fullyDeletedDecomposed"
+      if [ "$dependantSent" == "true" ]; then
+         echo "Cancelling dependant job sent from here to keep the deleting cycle, jobId=$next_jobid"
+         scancel $next_jobid 
       fi
+      echo "Burst in $burstDealingHere has been fully deletedDecomposed"
+      echo "The .fullDeletedDecomposed file has been generated"
+      break
+   fi
+   #-----------------------------------------
+   #-----------------------------------------
+   #Checking if the burst deleting has been completed partially up to the limit of keep alive
+   echo "Checking if the burst deleting has been completed up to the limit of keep alive times"
+   cd $workingDir
+   partiallyDeleted="true"
+   for ((j=$jIni; j<=$jEndAlive; j+=1))
+   do
+       jTime=${timeDirArr[$j]}
+       if ! [ -f "./${jTime}/.deletedDecomposed" ]; then
+          echo "Still ${jTime} in burst ${burstDealingHere} needs to be deletedDecomposed"
+          partiallyDeleted="false"
+      fi
+   done
+   if [ $partiallyDeleted == "true" ]; then
+      echo "Decomposed times listed in $burstDealingHere have been deleted from:"
+      echo " minTimeToDelete($minTimeToDelete) up to maxTimeToDelete($maxTimeToDelete)"
+      if float_cond "$previousMaxTimeSeen < $allMaxTimeSeen"; then
+         echo "As maxTimeToDelete($maxTimeToDelete) < maxTimeInBurst($maxTimeInBurst), the dependant job will be kept alive"
+      else
+         echo "Even if maxTimeToDelete($maxTimeToDelete) < maxTimeInBurst($maxTimeInBurst), new times have not been generated"
+         echo "previousMaxTimeSeen=$previousMaxTimeSeen"
+         echo "allMaxTimeSeen=$allMaxTimeSeen"
+         if [ "$dependantSent" == "true" ]; then
+            echo "Cancelling dependant job, jobId=$next_jobid"
+            scancel $next_jobid 
+         fi
+      fi
+      echo "Burst in $burstDealingHere has been partially deletedDecomposed and this job will be stopped here."
+      echo "But deletion still needs to go up to $maxTimeInBurst in a following pass if case creates more results"
+      echo "No .fullDeletedDecomposed file will be generated"
+      break
    fi
 done
 

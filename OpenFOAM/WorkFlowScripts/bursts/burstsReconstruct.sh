@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --export=none
-#SBATCH --account=pawsey0224
+#SBATCH --account=pawsey0001
 #SBATCH --job-name=burstsReconstruct
 #SBATCH --partition=workq
 #SBATCH --clusters=zeus
@@ -252,6 +252,10 @@ if ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyReconstructed ]; th
    if [ $fullyReconstructed == "true" ]; then
       touch "$burstsDir/${burstDealingHere}/.fullyReconstructed"
       echo "Burst in $burstsDir has been fully reconstructed"
+      if [ "$dependantSent" == "true" ]; then
+         echo "Cancelling the dependant job sent from here to keep the reconstructing cycle jobID=$next_jobid"
+         scancel $next_jobid
+      fi
    fi
 fi
 

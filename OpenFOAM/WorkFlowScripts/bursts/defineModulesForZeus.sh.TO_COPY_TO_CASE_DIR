@@ -17,11 +17,22 @@ errorCode7=700
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
-#module swap sandybridge broadwell
+#..............
+#Choose the correct environment:
+#NotNeededAnymoreForComputeNodes:module swap sandybridge broadwell
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
 module load openfoam+/v1712
-#module swap gcc gcc/7.2.0
-#module use /group/director2068/software/sles12sp3/modulefiles
-#module load openfoam/7
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
+#module load openfoam/6
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
+#module load shifter/18.06.00
+#ofContainer=pawsey/openfoam:2.3.x
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

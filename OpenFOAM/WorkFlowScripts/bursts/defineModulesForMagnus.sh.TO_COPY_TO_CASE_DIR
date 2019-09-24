@@ -2,7 +2,7 @@
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#In this script we define the modules to be used on zeus
+#In this script we define the modules to be used on Magnus
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -16,12 +16,24 @@ errorCode8=800
 #DEFINTION OF THE MODULES TO BE USED
 
 #-------------------------------------------------------------------------
-#-------------------------------------------------------------------------
+##-------------------------------------------------------------------------
+#..............
+#Choose the correct environment:
 module swap PrgEnv-cray PrgEnv-gnu
+#module swap PrgEnv-cray PrgEnv-intel
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
 module load openfoam+/v1712
-#module swap gcc gcc/5.3.0
-#module use /group/director2068/software/cle60up05/modulefiles
-#module load openfoam/7
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
+#module load openfoam/6
+
+#..............
+#Load the openfoam module or container to be used (or source the configuration files of your own installation)
+#module load shifter/18.06.00
+#ofContainer=pawsey/openfoam:2.3.x
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

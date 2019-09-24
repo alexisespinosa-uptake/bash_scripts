@@ -6,12 +6,27 @@
 #SBATCH --time=00:10:00
 #SBATCH --account=pawsey0001
 
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#Main slurm script for a burst-type of workflow with openfoam
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+currentScript0=`squeue -h -j $SLURM_JOBID -o %o`
+echo "currentScript0=$currentScript0"
+errorCode0=0
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#SETTING UP THE ENVIRONMENT AND VARIABLES
+
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
 #Setting up the modules
 module list
-#module swap sandybridge broadwell
-module load openfoam+/v1712
+source defineModulesForZeus.sh
 module list
 
 #-------------------------------------------------------------------------
@@ -25,10 +40,14 @@ workingDir=${SLURM_SUBMIT_DIR:-$PWD}
 #Defining the auxiliary functions
 source $WorkFlowScriptsDir/defineAuxiliaryFunctions.sh
 
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#OPENFOAM SETTINGS
+
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
 #Dummy times for the preparation
-startFrom=startTime
 startTime=0
 endTime=1
 deltaT=0.001
@@ -40,20 +59,36 @@ writeInterval=0.005
 ! [ -d ./system/previousTo ] && mkdir -p ./system/previousTo
 ! [ -d ./system/usedIn ] && mkdir -p ./system/usedIn
 cp ./system/controlDict ./system/previousTo/controlDict.previousTo.$SLURM_JOBID
-replaceFirstFoamParameter startFrom $startFrom ./system/controlDict
+cp ./system/controlDict.template ./system/controlDict
+replaceFirstFoamParameter startFrom startTime ./system/controlDict
 replaceFirstFoamParameter startTime $startTime ./system/controlDict
 replaceFirstFoamParameter endTime $endTime ./system/controlDict
+replaceFirstFoamParameter stopAt endTime ./system/controlDict
 replaceFirstFoamParameter deltaT $deltaT ./system/controlDict
 replaceFirstFoamParameter writeInterval $writeInterval ./system/controlDict
 cp ./system/controlDict ./system/usedIn/controlDict.usedIn.$SLURM_JOBID
 
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#EXECUTION
+
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
 #Executing the preparation
-echo "Starting preparation of the case" | tee log.prepare
-srun --export=all -n $SLURM_NTASKS ./Allclean | tee -a log.prepare
-srun --export=all -n $SLURM_NTASKS blockMesh -fileHandler uncollated | tee -a log.prepare
-srun --export=all -n $SLURM_NTASKS renumberMesh -overwrite -fileHandler uncollated | tee -a log.prepare
-srun --export=all -n $SLURM_NTASKS setFields -fileHandler uncollated | tee -a log.prepare
+! [ -d ./logs ] && mkdir logs
+currentLogFile=./logs/log.prepare.$SLURM_JOBID
+echo "Starting preparation of the case" | tee $currentLogFile
+srun --export=all -n $SLURM_NTASKS ./Allclean 2>&1 | tee -a $currentLogFile
+srun --export=all -n $SLURM_NTASKS blockMesh -fileHandler uncollated 2>&1 | tee -a $currentLogFile
+srun --export=all -n $SLURM_NTASKS renumberMesh -overwrite -fileHandler uncollated 2>&1 | tee -a $currentLogFile
+srun --export=all -n $SLURM_NTASKS setFields -fileHandler uncollated 2>&1 | tee -a $currentLogFile
 [ -d 0 ] && touch ./0/.reconstructed
-srun --export=all -n $SLURM_NTASKS decomposePar -force -fileHandler uncollated | tee -a log.prepare
+srun --export=all -n $SLURM_NTASKS decomposePar -force -fileHandler uncollated 2>&1 | tee -a $currentLogFile
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#FINAL STEPS
+echo "Preparation has finished"
+echo "Finishing $currentScript0"

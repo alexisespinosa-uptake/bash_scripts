@@ -113,19 +113,21 @@ fi
 cd $workingDir
 echo "PWD=$PWD"
 
-! [ -d ./system/backups ] && mkdir ./system/backups
-! [ -d ./system/backupsOld ] && mkdir ./system/backupsOld
+! [ -d ./system/previousTo ] && mkdir -p ./system/previousTo
+! [ -d ./system/usedIn ] && mkdir -p ./system/usedIn
 
 if float_cond "$startTime < $allEndTime"; then
    endTime=$(float_eval "$startTime + $burstRange")
    #Setting up the controlDict
-   cp ./system/controlDict ./system/backupsOld/controlDict.previousTo.$SLURM_JOBID
+   cp ./system/controlDict ./system/previousTo/controlDict.previousTo.$SLURM_JOBID
    cp ./system/controlDict.template ./system/controlDict
-   sed -i "s,AEG_startTime,$startTime," ./system/controlDict
-   sed -i "s,AEG_endTime,$endTime," ./system/controlDict
-   sed -i "s,AEG_deltaT,$deltaT," ./system/controlDict
-   sed -i "s,AEG_writeInterval,$writeInterval," ./system/controlDict
-   cp ./system/controlDict ./system/backups/controlDict.$SLURM_JOBID
+   replaceFirstFoamParameter startFrom startTime ./system/controlDict
+   replaceFirstFoamParameter startTime $startTime ./system/controlDict
+   replaceFirstFoamParameter stopAt endTime ./system/controlDict
+   replaceFirstFoamParameter endTime $endTime ./system/controlDict
+   replaceFirstFoamParameter deltaT $deltaT ./system/controlDict
+   replaceFirstFoamParameter writeInterval $writeInterval ./system/controlDict
+   cp ./system/controlDict ./system/usedIn/controlDict.usedIn.$SLURM_JOBID
 else
    echo "Case is finished. startTime($startTime) >= allEndTime($allEndTime)"
    export runStatus="done"

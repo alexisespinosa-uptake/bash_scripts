@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --export=none
-#SBATCH --account=pawsey0224
+#SBATCH --account=pawsey0001
 #SBATCH --job-name=burstsTarDecomposed
 #SBATCH --partition=copyq
 #SBATCH --clusters=zeus
@@ -71,9 +71,9 @@ if [ $performTarDecomposed != "true" ]; then
    echo "Exiting early because performTarDecomposed=$performTarDecomposed is not \"true\""
    echo "And This job request will be cancelled"
    echo "Exiting this job request .."
-   echo "Exiting from $currentScript4"
-   ((errorCode4 += 0))
-   exit $errorCode4
+   echo "Exiting from $currentScript5"
+   ((errorCode5 += 0))
+   exit $errorCode5
 fi
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -93,6 +93,7 @@ source $WorkFlowScriptsDir/defineAuxiliaryFunctions.sh
 nNamesakes=$(squeue --name="$SLURM_JOB_NAME" --state=RUNNING | wc -l)
 nNamesakes=$(float_eval "$nNamesakes")
 nNamesakes=$(float_eval "$nNamesakes - 2")
+echo "From $currentScript5, nNamesakes=$nNamesakes"
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -100,6 +101,7 @@ nNamesakes=$(float_eval "$nNamesakes - 2")
 nPendings=$(squeue --name="$SLURM_JOB_NAME" --state=PENDING | wc -l)
 nPendings=$(float_eval "$nPendings")
 nPendings=$(float_eval "$nPendings - 1")
+echo "From $currentScript5, nPendings=$nPendings"
 
 #-------------------------------------------------------------------------
 #-------------------------------------------------------------------------
@@ -251,6 +253,10 @@ if ! [ -f $workingDir/bursts/lists/${burstDealingHere}/.fullyTaredDecomposed ]; 
    if [ $fullyTared == "true" ]; then
       touch "$burstsDir/${burstDealingHere}/.fullyTaredDecomposed"
       echo "Burst in $burstsDir has been fully taredDecomposed"
+      if [ "$dependantSent" == "true" ]; then
+         echo "Cancelling the dependant job that was sent here jobId=$next_jobid"
+         scancel $next_jobid
+      fi
    fi
 fi
 
