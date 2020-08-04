@@ -3,6 +3,7 @@
 #SBATCH --clusters=magnus
 #SBATCH --partition=workq
 #SBATCH --ntasks=24
+#SBATCH --ntasks-per-node=24
 #SBATCH --time=00:15:00
 #SBATCH --account=pawsey0001
 #SBATCH --job-name=TEST00

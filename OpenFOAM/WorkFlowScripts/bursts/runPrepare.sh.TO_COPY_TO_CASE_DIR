@@ -3,6 +3,7 @@
 #SBATCH --clusters=zeus
 #SBATCH --partition=workq
 #SBATCH --ntasks=1
+#SBATCH --mem-per-cpu=120G
 #SBATCH --time=00:10:00
 #SBATCH --account=pawsey0001
 
