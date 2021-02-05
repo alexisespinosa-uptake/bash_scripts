@@ -80,7 +80,7 @@ echo "And nextIteration=${nextIteration}"
 #....
 # Number of files/directories to be processed by munlink and rmdir at a time
 # This argument may need additional tweaking for obtaining optimal performance
-nFilesPerCore=500
+nFilesPerCore=100
 echo "The number of lines to be chunked for xargs is -L${nFilesPerCore}"
 #....
 # Minumum Number of files expected to be found "quick" in order to proceed directly to munlink or rmdir cycles
@@ -126,12 +126,12 @@ munlinkFilesAndLinks() {
     for (( internalCycles=0; internalCycles<$NMaxInternalCycles; internalCycles++ )); do
         echo "First deleting the auxiliary file from previous mini-cycle: /tmp/${baseDelDir}.${baseFileName}.toDelete"
         rm /tmp/${baseDelDir}.${baseFileName}.toDelete
-        echo "Internal mini-cycle=${internalCycles} for deleting directory: ${delDirArr[$i]}"
+        echo "Internal mini-cycle=${internalCycles} for deleting files within directory: ${delDirArr[$i]}"
         echo "Counting files to delete:"
         timeout ${limitInternalDeleteTime}s find -P ${delDir} -type f -print0 -o -type l -print0 | xargs -0 -I "{}" echo "'{}'" >> /tmp/${baseDelDir}.${baseFileName}.toDelete
         nToDelete=$(sed -n '$=' /tmp/${baseDelDir}.${baseFileName}.toDelete)
         nToDelete="${nToDelete:-0}"
-        echo "Find got $nToDelete files to delete in the internal cycle in ${limitInternalDeleteTime} seconds."
+        echo "Find got $nToDelete files to delete within directory in the internal cycle in ${limitInternalDeleteTime} seconds."
         if [ $nToDelete -eq 0 ]; then
             internalCycles=$NMaxInternalCycles
             echo "Nothing found to delete"
@@ -158,7 +158,7 @@ deleteEmptyDirs() {
     for (( internalCycles=0; internalCycles<$NMaxInternalCycles; internalCycles++ )); do
         echo "First deleting the auxiliary file from previous mini-cycle: /tmp/${baseDelDir}.${baseFileName}.toDelete"
         rm /tmp/${baseDelDir}.${baseFileName}.toDelete
-        echo "Internal mini-cycle=${internalCycles} for deleting directory: ${delDirArr[$i]}"
+        echo "Internal mini-cycle=${internalCycles} for deleting empty subdirectories within directory: ${delDirArr[$i]}"
         echo "Counting empty directories:"
         timeout ${limitInternalDeleteTime}s find -P ${delDir} -mindepth 1 -type d -empty -print0 | xargs -0 -I "{}" echo "'{}'" >> /tmp/${baseDelDir}.${baseFileName}.toDelete
         nToDelete=$(sed -n '$=' /tmp/${baseDelDir}.${baseFileName}.toDelete)
@@ -370,7 +370,8 @@ echo " "
 nothingDone=true
 echo "Nothing has been done yet. We are starting. Setting the flag nothingDone=${nothingDone}"
 echo "Counting how many files are in the system:"
-lfs quota -u $USER /scratch
+lfs quota -hu $USER /scratch
+lfs quota -hu $USER /group
 for i in `seq 0 ${NDirs}`; do
     #Defining the folder to delete:
     echo "Processing directory of index i=${i}"
@@ -407,7 +408,8 @@ for i in `seq 0 ${NDirs}`; do
         for (( cycles=0; cycles<$NMaxCycles; cycles++ )); do
             echo "Overall main cycle=${cycles} for deleting directory: ${delDirArr[$i]}"
             echo "Counting how many files are in the system:"
-            lfs quota -u $USER /scratch
+            lfs quota -hu $USER /scratch
+            lfs quota -hu $USER /group
             nothingDone=false
             echo "Setting nothingDone=${nothingDone}"
             nFiles=0
@@ -550,5 +552,6 @@ fi
 echo " "
 echo "The script has reached the end, exiting with success"
 echo "Counting how many files are in the system:"
-lfs quota -u $USER /scratch
+lfs quota -hu $USER /scratch
+lfs quota -hu $USER /group
 exit 0
