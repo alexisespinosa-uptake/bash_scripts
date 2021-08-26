@@ -1,0 +1,372 @@
+#!/usr/bin/perl
+# Short tool to give an indication of amount of shares used this quarter
+
+use Getopt::Long;
+use Pod::Usage;
+use Date::Format;
+use strict;
+use warnings;
+
+my $yearQuery=2019; #AEG
+my $quarterQuery=4; #AEG
+#Original:my $startdate = "2015-01-01T00:00:00";
+my $startdate = "$yearQuery-01-01T00:00:00"; #AEG
+#Original:my $enddate = "2015-03-30T23:59:59";
+my $enddate = "$yearQuery-12-31T23:59:59"; #AEG
+
+# It's either install the Fiscal PMs on all the login nodes for little gain or this:
+#Original:my @date=localtime();
+#Original:my $year=strftime("%Y",@date);
+my $year=$yearQuery; #AEG
+#Original:my $quarter=strftime("%q",@date);
+my $quarter=$quarterQuery; #AEG
+
+my %shares;
+my @projects;
+my $userproject = $ENV{'PAWSEY_PROJECT'};
+my $cluster = $ENV{'PAWSEY_CLUSTER'};
+my $storage = 0;
+my $raw = 0;
+my $users = 0;
+my $help = 0;
+my $yearly = 0;
+my $project;
+my @groups = split /\s+/,`groups`;
+my $mygroups = 0;
+my $uid_quota;
+my $uid_used;
+my @fs = ( '/group', '/scratch2', '/astro' );
+my $fs;
+my $nocpuproj= 0;
+
+# No Number::bytes::Human on the Cray systems as standard. Going old school.
+sub get_filesize_str
+{
+    my $size = shift;
+
+    if ($size > 1099511627776) {   #   TiB: 1024 GiB
+        return sprintf("%.2f TiB", $size / 1099511627776);
+    } elsif ($size > 1073741824) { #   GiB: 1024 MiB
+        return sprintf("%.2f GiB", $size / 1073741824);
+    } elsif ($size > 1048576) {    #   MiB: 1024 KiB
+        return sprintf("%.2f MiB", $size / 1048576);
+    } elsif ($size > 1024) {       #   KiB: 1024 B
+        return sprintf("%.2f KiB", $size / 1024);
+    } else {                       #   bytes
+        return sprintf("%.2f bytes", $size);
+    }
+}
+
+sub startofquarter {
+  my $quarter = shift;
+  my $year = shift;
+
+  if ($quarter==1) {
+    return "$year-01-05T00:00:00";
+  } elsif ($quarter==2) {
+    return "$year-04-01T00:00:00";
+  } elsif ($quarter==3) {
+    return "$year-07-01T00:00:00";
+  } elsif ($quarter==4) {
+    return "$year-10-01T00:00:00";
+  } else
+  { die "What kind of year has more than 4 quarters?!" }
+}
+
+sub endofquarter {
+  my $quarter = shift;
+  my $year = shift;
+  my $enddate;
+
+  if ($quarter==1) {
+    $enddate = "$year-03-31T23:59:59";
+  } elsif ($quarter==2) {
+    $enddate = "$year-06-30T23:59:59";
+  } elsif ($quarter==3) {
+    $enddate = "$year-09-30T23:59:59";
+  } elsif ($quarter==4) {
+    $enddate = "$year-12-31T23:59:59";
+  } else
+  { die "What kind of year has more than 4 quarters?!" }
+  #Truncate date to avoid future usage.
+  #Original:my $currentdate=strftime("%Y-%m-%dT%H:%M:%S",@date);
+  my $currentdate= $enddate; #AEG
+  if ($currentdate lt $enddate) { $enddate = $currentdate };
+  return $enddate
+}
+
+#Original:$startdate = startofquarter($quarter,$year);
+#Original:$enddate = endofquarter($quarter,$year);
+
+GetOptions ("project=s" => \@projects,		# Project to gather data for
+    "cluster=s" => \$cluster,                   # Cluster to gather data for
+    "storage" => \$storage,			# Gather storage usage information
+    "mygroups" => \$mygroups,			# Whether to print information about all groups the user is in
+    "yearly" => \$yearly,			# Whether to print usage for the year
+    "raw" => \$raw,   				# Print raw output for input into scripts
+    "users" => \$users,   			# Print information for individual users
+    "help|?" => \$help,
+);
+
+pod2usage(1) if $help;
+
+#Set default to PAWSEY_PROJECT if none specified on command line.
+if (defined $userproject and length $userproject and scalar @projects==0) { push @projects, $userproject};
+if ($mygroups) { @projects = @groups; }
+
+die "Project not set, see help to specify project.\n" unless (scalar @projects>0);
+die "Cluster not set, see help to specify cluster.\n" unless length $cluster;
+
+# To support reporting on user-supplied projects not in current sshare.
+foreach $project (@projects) {
+  $shares{$project}=0;
+}
+
+open(SHARES,"sshare -n -p -o account,user,rawshares -M $cluster |");
+while(<SHARES>){
+    next if /^root/;
+    next if /^CLUSTER:/;
+    next if /^  /;
+    chomp;
+    my @fields=split(/\|/,$_);
+    my $project = $fields[0];
+    $project =~ s/^\ //g;
+    my $allocation = $fields[2];
+    if ($allocation =~ /parent/) {$allocation=1}
+    $shares{$project}=$allocation;
+}
+
+close SHARES;
+
+my $total=0;
+
+my $HTfactor = 1;
+if ($cluster =~ /magnus/i) {$HTfactor = 2}
+if ($cluster =~ /galaxy/i) {$HTfactor = 2}
+
+if ($yearly == 0) {
+  if ($raw != 1) {
+      print "Compute Information\n-------------------\n";
+      printf("%20s   %12s   %12s   %8s\n","Project ID","Allocation","Usage","% used");
+      printf("%20s   %12s   %12s   %8s\n","----------","----------","-----","------");
+  }
+  foreach $project (sort {$shares{$b} <=> $shares{$a}} keys %shares){
+    next if not grep (/$project/,@projects);
+    my $usage=0;
+    my %userusage;
+
+    open(SACCT,"sacct -n -a -M $cluster -A $project -S $startdate -E $enddate -p -T -X --format=jobid,user,CPUTimeRaw,alloctres,elapsedraw |");
+      while(<SACCT>) {
+      chomp;
+      next if /\.batch/;
+      my @fields=split /\|/, $_;
+      my $jobid = $fields[0];
+      my $user = $fields[1];
+      my $rawusage = $fields[2];
+      my $alloctres = $fields[3];
+      my $elapsedraw = $fields[4];
+      # extract billing if it exists.
+      # billing is an integer, but allow for real anyway
+      if ($alloctres =~ /billing=([\d\.]+)/) {
+        my $billing = $1;
+        $rawusage = $billing * $elapsedraw / 3600;
+      } else {
+        $rawusage = $rawusage / 3600;
+      }
+      if ($quarter < 4 && $year < 2020) {
+        $rawusage = $rawusage / $HTfactor;
+      }
+      if (exists $userusage{$user}) {
+        $userusage{$user} += $rawusage;
+      } else {
+        $userusage{$user} = $rawusage;
+      }
+      $usage+=$rawusage;
+    }
+    close SACCT;
+
+    if ($raw != 1) {
+        if ($shares{$project} > 0) {
+            printf("%20s   %12d   %12d   %8.1f\n",$project, $shares{$project}, $usage, 100.0*$usage/$shares{$project});
+        } else {
+            print("There do not appear to be cpu hours available to project $project\n");
+            $nocpuproj += 1;
+        }
+        if ($users == 1 && $shares{$project} > 0) {
+          foreach my $user (sort {$userusage{$b} <=> $userusage{$a}} keys %userusage) {
+            printf("%20s  %28d   %8.1f\n","--".$user, $userusage{$user}, 100.0*$userusage{$user}/$shares{$project});
+          }
+        }
+
+    } else {
+        printf("project=%s\nallocation=%d\nusage=%d\npercentage=%.1f\n",$project, $shares{$project}, $usage, 100.0*$usage/$shares{$project});
+    }
+  }
+  if ($nocpuproj > 0) {
+    print("\nPlease contact help\@pawsey.org.au if you believe the cpu info to be in error.\n");
+  }
+
+} else { #yearly=1.  Report by quarter
+  print "Compute Information\n-------------------\n";
+  printf("%20s   %20s   %12s\n","Project ID","Period","Usage");
+  printf("%20s   %20s   %12s\n","----------","------","-----");
+  foreach $project (sort {$shares{$b} <=> $shares{$a}} keys %shares){
+    next if not grep (/$project/,@projects);
+
+    my $totalusage=0;
+    my %totaluserusage;
+    foreach my $myquarter (1 .. $quarter) {
+
+      my $usage=0;
+      my %userusage;
+
+      $startdate = startofquarter($myquarter,$year);
+      $enddate = endofquarter($myquarter,$year);
+
+      open(SACCT,"sacct -n -a -M $cluster -A $project -S $startdate -E $enddate -p -T -X --format=jobid,user,CPUTimeRaw,alloctres,elapsedraw |");
+        while(<SACCT>) {
+        chomp;
+        next if /\.batch/;
+        my @fields=split /\|/, $_;
+        my $jobid = $fields[0];
+        my $user = $fields[1];
+        my $rawusage = $fields[2];
+        my $alloctres = $fields[3];
+        my $elapsedraw = $fields[4];
+        # extract billing if it exists.
+        # billing is an integer, but allow for real anyway
+        if ($alloctres =~ /billing=([\d\.]+)/) {
+          my $billing = $1;
+          $rawusage = $billing * $elapsedraw / 3600;
+        } else {
+          $rawusage = $rawusage / 3600;
+        }
+        if ($myquarter < 4 && $year < 2020) {
+          $rawusage = $rawusage / $HTfactor;
+        }
+        if (exists $userusage{$user}) {
+          $userusage{$user} += $rawusage;
+        } else {
+          $userusage{$user} = $rawusage;
+        }
+        if (exists $totaluserusage{$user}) {
+          $totaluserusage{$user} += $rawusage;
+        } else {
+          $totaluserusage{$user} = $rawusage;
+        }
+        $usage+=$rawusage;
+        $totalusage+=$rawusage;
+      }
+      close SACCT;
+
+      printf("%20s   %20s   %12d\n",$project,"${year}Q${myquarter}",$usage);
+      if ($users == 1) {
+        foreach my $user (sort {$userusage{$b} <=> $userusage{$a}} keys %userusage) {
+          printf("%30s   %10s   %12d\n","--".$user,"",$userusage{$user});
+        }
+      }
+    }
+    printf("%20s   %20s   %12d\n",$project,"${year}Q1-${quarter}",$totalusage);
+    if ($users == 1) {
+      foreach my $user (sort {$totaluserusage{$b} <=> $totaluserusage{$a}} keys %totaluserusage) {
+        printf("%30s   %10s   %12d\n","--".$user,"",$totaluserusage{$user});
+      }
+    }
+  }
+}
+
+if ($storage == 1) {
+    if ($raw != 1) {
+        print "\nStorage Information\n-------------------\n";
+    }
+    foreach $fs (@fs) {
+        if (-d $fs) {
+            foreach $project (@projects) {
+                my $group = `lfs quota -g $project $fs 2>/dev/null ` or (warn "You do not have permission to query the quota of that project\n" && next);
+                my $tmp = $group;
+                if ($tmp =~ /\ +$fs\ +([0-9\*]+)\ +([0-9\*]+)\ +([0-9\*]+)/) {
+                    $uid_used = $1;
+                    $uid_quota = $2;
+                    
+                    $uid_used =~ s/\*//g;
+                    
+                    $uid_quota = get_filesize_str($uid_quota * 1024);
+                    $uid_used = get_filesize_str($uid_used * 1024);
+                            
+                    if ($raw != 1) {
+                        print "$fs usage for $project, used = $uid_used, quota = $uid_quota\n";
+                    } else {
+                        printf("storagefs=%s\nstorageused=%s\nstoragequota=%s\n", $fs, $uid_used, $uid_quota);
+                    }
+                }
+            }
+        }
+    }
+
+}
+exit;
+
+__END__
+
+=head1 NAME
+
+pawseyAccountBalance - Get Account Information From Pawsey Systems
+
+=head1 SYNOPSIS
+
+pawseyAccountBalance [options] 
+
+ Options:
+   -project=id      specify project to query
+   -cluster=name    specify cluster to query
+   -storage         also give storage information
+   -mygroups        print information about all groups the user is in
+   -yearly          report usage for whole year, by quarter
+   -users           also give breakdown by user
+   -help            brief help message
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-project>
+
+ Specify project ID that you wish to query the usage for.
+ Defaults to PAWSEY_PROJECT environment variable.
+
+=item B<-cluster>
+
+ Specify cluster that you wish to query the usage for.
+ Defaults to PAWSEY_CLUSTER environment variable.
+
+=item B<-storage>
+
+ Also print out storage information for the project.
+ Currently only including /group storage.
+ Only root user can query usage for projects which they
+  are not a member of.
+
+=item B<-mygroups>
+
+ Print out information for all groups the user is a member of.
+ This overrides the -projects option.
+
+=item B<-yearly>
+
+ Print usage for whole year, by quarter.
+
+=item B<-users>
+
+ For usage, print out the breakdown by individual user.
+
+=item B<-help>
+
+ Print a brief help message and exits.
+
+=back
+
+=head1 DESCRIPTION
+
+B<pawseyAccountBalance> queries the Pawsey Supercomputing Centre systems for information about usage.
+
+=cut
