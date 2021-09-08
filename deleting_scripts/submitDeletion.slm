@@ -1,10 +1,14 @@
 #!/bin/bash -l
-##IMPORTANT: Modify the --job-name if you are submiting this kind of script two or more times for
-##           the deletion of different directories. That is, each job submitted to the queue should have
-##           a differnet --job-name.
+##IMPORTANT: Users are should modify the lines indicated with the flag: #UserShouldModify
+##IMPORTANT: Users are may modify or not the lines indicated with the flag: #UserMayModify
+#
+##IMPORTANT: Modify the --job-name if you are submiting two or more of this kind of scripts at the
+##           same time. That is: each job submitted to the queue should have a different --job-name.
+##           The reason for this is the recursive capability of the script which checks for the 
+##           job-name when resubmitting itself.
 #
 #UserShouldModify next 1 line(s): (please read the IMPORTANT comment above)
-#SBATCH --job-name=DeletingMyDirs
+#SBATCH --job-name=deletingMyDirs
 #
 #SBATCH --output=%x-%j.out
 #SBATCH --clusters=zeus
@@ -31,24 +35,22 @@ echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
 echo "SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK}"
-echo "SLURM_JOB_CPUS_PER_NODE=${SLURM_JOB_CPUS_PER_NODE}"
 
 ##----------------------------
 #Defining the deletion script:
 #Users should keep using their $MYGROUP/../deleting_scripts/deleteFolders.sh script unless instructed otherwise
 scriptDir=$MYGROUP/../deleting_scripts
-deletingScriptName=${scriptDir}/deleteFolders.sh
+deletingScriptName=${scriptDir}/deleteManyFoldersAndFiles.sh
 
-# The script defined above in $deletingScriptName will receive a list of directories to delete, or the name of a directory itself.
-# The list or the directoryName should be passed as an argument to the script in the command line.
+# The script defined above in $deletingScriptName will receive directories to be deleted as arguments.
+# It can also receive the list within a file indicated with the option --list
+# If the given names are files instead of directories, then they will be deleted too
 #
-# For example:
-# $MYGROUP/../deleting_scripts/deleteFolders.sh user.delete.list
+# Example use:
+# $deletingScriptName myDirToDelete1 myDirToDelete2 --list user.delete.list
+# where user.delete.list is a text file containing the list of directories to be deleted
 #
-# or using the variable defined above:
-# $deletingScriptName user.delete.list
-#
-# (also see how it is really used with srun at the bottom of this script)
+# IMPORTANT: see how it is used with together with srun at the bottom of this script
 
 ##----------------------------
 # IMPORTANT:
@@ -93,10 +95,7 @@ echo "currentIteration=${currentIteration}"
 
 ##----------------------------
 #Example for deleting a single directory:
-#UserShouldModify next 1 line(s) if deleting a single directory tree (otherwise keep commented):
-srun -u --export=all -N ${SLURM_JOB_NUM_NODES} -n ${SLURM_NTASKS_PER_NODE} -c ${SLURM_CPUS_PER_TASK} ${deletingScriptName} /scratch/pawseyXXX/OpenFOAM/case1
-
-##----------------------------
-#Example for deleting several directories. Directories to be deleted must be in a list within a file(user.delete.list):
-#UserShouldModify next 1 line(s) if deleting multiple directory trees (otherwise keep commented):
-#srun -u --export=all -N ${SLURM_JOB_NUM_NODES} -n ${SLURM_NTASKS_PER_NODE} -c ${SLURM_CPUS_PER_TASK} ${deletingScriptName} user.delete.list
+#UserShouldModify arguments in next command:
+#     - replace dirToDeleteI with the directories to be deleted
+#     - replace the name of the file with the list of directories to be deleted
+srun -u -N ${SLURM_JOB_NUM_NODES} -n ${SLURM_NTASKS_PER_NODE} -c ${SLURM_CPUS_PER_TASK} ${deletingScriptName} dirToDelete1 dirToDelete2 --list ../user.delete.list

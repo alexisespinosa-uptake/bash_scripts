@@ -2,12 +2,12 @@
 #SBATCH --partition=copyq
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=2
-#SBATCH --job-name=minioMirror
+#SBATCH --job-name=fileMinioCopy
 
-dirToMirror="/scratch/pawsey0001/espinosa/manyFilesTest/1millionTree_5171432"
+workingDir="/scratch/pawsey0001/espinosa/manyFilesTest"
+fileToCopy="${workingDir}/manyMillions_01.tar"
 serviceAlias=magenta
-newBucket="aeg-thousands-${SLURM_JOBID}"
-
+newBucket="aeg-tared-files-${SLURM_JOBID}"
 
 echo "-- Quick list of existing buckets --------------------"
 mc ls ${serviceAlias}/
@@ -16,12 +16,12 @@ echo "-- Creating the new bucket ---------------------------"
 mc mb ${serviceAlias}/${newBucket}
 mc ls ${serviceAlias}/
 
-echo "-- Mirrowing directory into the new bucket -----------"
+echo "-- mc cp <file> into the new bucket ------------------"
 startTime=$(date +%s) 
-mc mirror $dirToMirror ${serviceAlias}/${newBucket} 
+mc cp ${fileToCopy} ${serviceAlias}/${newBucket} 
 endTime=$(date +%s)
-lengthTime=$(expr $endTime - $startTime)
-echo "Mirrowing time = $lengthTime"
+copyTime=$(expr $endTime - $startTime)
+echo "mc cp time = $copyTime"
 
 echo "-- Script finished -----------------------------------"
 

@@ -2,15 +2,10 @@
 
 #------------------------------------------
 #-------------------------------------------
-# Initial settings and variables
-thisScript=`basename "$0"`
+#Reading the argument with the directory or the directories' list
 echo " "
-
-#------------------------------------------
-#-------------------------------------------
-#Usage explanation function
-usage()
-{
+if [ "$#" -ne 1 ]; then
+    thisScript=`basename "$0"`
     echo "---------------------------------------------------------"
     echo "  ERROR ERROR ERROR ERROR ERROR ERROR ERROR ERROR ERROR  "
     echo "---------------------------------------------------------"
@@ -26,44 +21,8 @@ usage()
     echo "           within the \"Knowledge Base\" section"
     echo "Exiting this job request .."
     exit 1
-} 
-
-
-#------------------------------------------
-#-------------------------------------------
-#Reading the arguments with the directory or the directories' list to delete
-DIRS=()
-delDirArr=[]
-if [ "$#" -eq 0 ]; then
-   usage
-else
-   while [[ $# -gt 0 ]]; do            # while the number of arguments is greater than 0
-      key="$1"
-      case $key in
-         -d)
-            dest="$(readlink -f $2)"      # determine the full path of the destination
-            shift
-            shift
-            ;;
-         *)
-            DIRS+=("$1")           # capture arguments not connected to options in an array
-            shift
-            ;;
-      esac
-   done
-   #set -- "${DIRS[@]}"            # restore the non-option args to command line args 
 fi
-
-#------------------------------------------
-#-------------------------------------------
-#Reviewing what will be performed:
-echo "In 0:"
-echo "${DIRS[@]}"
-set -- "${DIRS[@]}"            # restore the non-option args to command line args 
-echo "In 1:"
-echo "${DIRS[@]}"
-exit
-
+argument=$1
 
 #-------------------------------------------
 #-------------------------------------------
@@ -81,7 +40,7 @@ echo "SLURM_JOB_CPUS_PER_NODE=${SLURM_JOB_CPUS_PER_NODE}"
 
 #-------------------------------------------
 #-------------------------------------------
-#These variables should come from the calling script, if not defined then here are defined defaults
+#These variables should come from the callng script, if not defined then here are defined defaults
 echo " "
 #....
 nCores=$SLURM_JOB_CPUS_PER_NODE

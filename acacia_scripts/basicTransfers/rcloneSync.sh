@@ -4,7 +4,7 @@
 #SBATCH --ntasks=2
 #SBATCH --job-name=rcloneSync
 
-dirToMirror="/scratch/pawsey0001/espinosa/manyFilesTest/1millionFilesTree"
+dirToMirror="/scratch/pawsey0001/espinosa/manyFilesTest/1millionTree_5171433"
 dirName=$(basename $dirToMirror)
 serviceAlias=magenta
 newBucket="aeg-thousands-${SLURM_JOBID}"
@@ -16,20 +16,12 @@ module list
 echo "-- Setting up the environment ------------------------"
 export RCLONE_CONFIG_CEPH_TYPE="s3"
 export RCLONE_CONFIG_CEPH_ENDPOINT="https://nimbus.pawsey.org.au:8080"
-export RCLONE_CONFIG_CEPH_ACCESS_KEY_ID="35e659b07a0247bc803e8ca8673435ce"
-export RCLONE_CONFIG_CEPH_SECRET_ACCESS_KEY="b3ffa8ce04bc467d8818877afe2b6e14"
-
-#@@echo "-- Quick list of existing buckets --------------------"
-#@@mc ls ${serviceAlias}/
-#@@
-#@@echo "-- Creating the new bucket ---------------------------"
-#@@mc mb ${serviceAlias}/${newBucket}
-#@@mc ls ${serviceAlias}/
+export RCLONE_CONFIG_CEPH_ACCESS_KEY_ID="2e67133ce9124d609e6adad2634ca124"
+export RCLONE_CONFIG_CEPH_SECRET_ACCESS_KEY="44017d550461455aa4f6943ccaf22887"
 
 echo "-- Syncing directory into the new bucket -----------"
 startTime=$(date +%s) 
-#@@mc mirror $dirToMirror ${serviceAlias}/${newBucket} 
-rclone sync $dirToMirror ceph:${newBucket}/${dirName}
+rclone sync $dirToMirror ceph:${newBucket}
 endTime=$(date +%s)
 lengthTime=$(expr $endTime - $startTime)
 echo "Syncing time = $lengthTime"
